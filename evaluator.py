@@ -32,7 +32,7 @@ class InterviewEvaluator:
                 "If the candidate says nothing, or provides no answer, or a very short answer, basically any "
                 "answer that an interviewer would not appreciate, give a 0 or a very low score. "
                 "Similarly, if the candidate gives a good, strong response, give them a high ranking. "
-                "After doing all of this, give a concise feedback for the hiring team and a rating."
+                "After doing all of this, give just a rating out of 10."
             ),
             verbose=False,
             allow_delegation=False
@@ -43,7 +43,7 @@ class InterviewEvaluator:
                 f"Analyze the candidate's response: {answer} to this question: {question}"
             ),
             agent=evaluator_agent,
-            expected_output="The output should be a concise feedback for the hiring team and a rating."
+            expected_output="An integer rating out of 10."
         )
 
         evaluation_crew = Crew(
