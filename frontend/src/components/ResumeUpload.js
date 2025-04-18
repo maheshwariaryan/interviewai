@@ -4,7 +4,7 @@ import { useInterview } from '../context/InterviewContext';
 import { getCurrentQuestion } from '../services/api';
 
 // N8N webhook URL
-const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_ENV_URL;
+const N8N_WEBHOOK_URL = process.env.REACT_APP_WEBHOOK_URL;
 
 const ResumeUpload = ({ onComplete }) => {
   const { setResumeData, setError, updateInterviewStatus, setInterviewSetup } = useInterview();
