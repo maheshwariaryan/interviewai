@@ -1,42 +1,39 @@
 # main.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import List, Dict, Optional
 import re
+import io
+from PyPDF2 import PdfReader
 from evaluator import InterviewEvaluator
 from questions_generator import interview_candidate
 from resume_parser import extract_details as extract_resume_details
-from typing import List, Dict, Optional
 
 app = FastAPI()
 
-# Configure CORS to allow requests from your React frontend
+# ✅ CORS: allow frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://interviewai-bay.vercel.app/"],  # Your React app's origin
+    allow_origins=[
+        "https://interviewai-bay.vercel.app",  # production frontend
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Global state to store questions and current question index
+# Global interview state
 interview_questions = []
 current_question_index = 0
 interview_responses = []
-
-# Global state to store interview context
-current_interview_context = {
-    "role": "",
-    "resume_data": None
-}
-
-# Global evaluator instance
+current_interview_context = {"role": "", "resume_data": None}
 evaluator = None
 
+# 📄 Models
 class ResponseModel(BaseModel):
     response: str
 
-# Define ResumeContent class here to match the one in resume_parser.py
 class ResumeContent(BaseModel):
     content: str
 
@@ -46,25 +43,71 @@ class InterviewConfigModel(BaseModel):
     experience: Optional[str] = None
     education: Optional[str] = None
 
+@app.post("/api/upload-resume")
+async def upload_resume(resume: UploadFile = File(...), role: str = Form(...)):
+    try:
+        # Read PDF content
+        contents = await resume.read()
+        reader = PdfReader(io.BytesIO(contents))
+        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+
+        # Save to global context
+        current_interview_context["role"] = role
+        current_interview_context["resume_data"] = text
+
+        # Step 1: Extract structured fields
+        resume_details = await extract_resume_details(ResumeContent(content=text))
+
+        # Step 2: Generate questions from parsed content
+        simplified_resume = f"""
+Skills:
+{resume_details.get("skills", "")}
+
+Experience:
+{resume_details.get("experience", "")}
+
+Education:
+{resume_details.get("education", "")}
+"""
+        questions_text = interview_candidate(
+            resume=simplified_resume,
+            role=role,
+            skills=resume_details.get("skills", ""),
+            experience=resume_details.get("experience", ""),
+            education=resume_details.get("education", "")
+        )
+
+        # Step 3: Store questions
+        global interview_questions, current_question_index, interview_responses
+        interview_questions = extract_questions(questions_text)
+        current_question_index = 0
+        interview_responses.clear()
+
+        return {
+            "success": True,
+            "role": role,
+            "question_count": len(interview_questions),
+            "questions": interview_questions
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing resume: {str(e)}")
+
+# 📑 Extract structured details
 @app.post("/api/extract-resume")
 async def extract_resume(resume_data: ResumeContent):
-    """Extract details from a resume."""
     try:
-        # Pass the ResumeContent object directly, no need to recreate it
-        details = await extract_resume_details(resume_data)
-        return details
+        return await extract_resume_details(resume_data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error extracting resume details: {str(e)}")
 
+# ❓ Generate interview questions
 @app.post("/api/generate-questions")
 async def generate_questions(config: InterviewConfigModel):
-    """Generate interview questions based on resume components and role."""
     global interview_questions, current_question_index
-    
+
     try:
-        # If we have the extracted components, we can reconstruct a simplified resume
-        if config.skills or config.experience or config.education:
-            simplified_resume = f"""
+        simplified_resume = f"""
 Skills:
 {config.skills or ""}
 
@@ -73,11 +116,8 @@ Experience:
 
 Education:
 {config.education or ""}
-            """
-        else:
-            simplified_resume = config.resume or ""
-        
-        # Generate questions using the interview module
+""" if (config.skills or config.experience or config.education) else config.resume or ""
+
         questions_text = interview_candidate(
             resume=simplified_resume,
             role=config.role,
@@ -85,82 +125,70 @@ Education:
             experience=config.experience or "",
             education=config.education or ""
         )
-        
-        # Extract questions from the generated text
+
         interview_questions = extract_questions(questions_text)
         current_question_index = 0
         interview_responses.clear()
-        
+
         return {"total_questions": len(interview_questions)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating questions: {str(e)}")
 
+# 🔄 Get next question
 @app.get("/api/get-question")
 async def get_question():
     global current_question_index, interview_questions
 
     if not interview_questions or current_question_index >= len(interview_questions):
         return {"question": "No questions available. Please generate questions first.", "remaining": 0}
-    
+
     question = interview_questions[current_question_index]
     remaining = len(interview_questions) - current_question_index - 1
-    
-    # Add question type
-    question_type = "unknown"
-    if evaluator:
-        question_type = evaluator._analyze_question_type(question)
-    
+    question_type = evaluator._analyze_question_type(question) if evaluator else "unknown"
+
     return {
-        "question": question, 
+        "question": question,
         "remaining": remaining,
         "question_type": question_type,
         "question_index": current_question_index
     }
 
-
+# 📝 Submit answer
 @app.post("/api/submit-response")
 async def submit_response(user_response: ResponseModel):
-    """Submit and evaluate a response to the current question."""
     global current_question_index, interview_questions, interview_responses, evaluator
-    
+
     if not interview_questions or current_question_index >= len(interview_questions):
         raise HTTPException(status_code=400, detail="No active question to respond to")
-    
+
     try:
-        # Get the current question
         current_question = interview_questions[current_question_index]
-        
-        # Make sure evaluator is initialized
+
         if not evaluator:
             evaluator = InterviewEvaluator(
                 role=current_interview_context.get("role", ""),
                 resume_data=current_interview_context.get("resume_data", None)
             )
-        
-        # Evaluate the response
+
         evaluation = evaluator.evaluate_response(
-            current_question, 
+            current_question,
             user_response.response,
             current_interview_context
         )
-        
-        # Get the question type
+
         question_type = evaluator._analyze_question_type(current_question)
-        
-        # Store the response and evaluation
+
         interview_responses.append({
             "question": current_question,
             "answer": user_response.response,
             "evaluation": evaluation,
             "question_type": question_type
         })
-        
-        # Move to the next question
+
         current_question_index += 1
-        
-        # Return the evaluation result
+
         return {
-            "evaluation": evaluation, 
+            "evaluation": evaluation,
             "question_index": current_question_index - 1,
             "total_questions": len(interview_questions),
             "question_type": question_type,
@@ -169,111 +197,66 @@ async def submit_response(user_response: ResponseModel):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error evaluating response: {str(e)}")
 
+# 📊 Get results
 @app.get("/api/get-results")
 async def get_results():
-    """Get the complete interview results."""
     global evaluator
-    
+
     if not interview_responses:
         return {"message": "No interview responses recorded yet"}
-    
-    total_score = 0
-    num_evaluated = 0
-    
-    for response in interview_responses:
+
+    total_score, num_evaluated = 0, 0
+    for r in interview_responses:
         try:
-            # Try to convert evaluation to a number
-            score = float(response["evaluation"])
+            score = float(r["evaluation"])
             total_score += score
             num_evaluated += 1
-        except (ValueError, TypeError):
-            # Skip if not a valid number
+        except:
             pass
-    
-    average_score = total_score / num_evaluated if num_evaluated > 0 else 0
-    
-    # Get evaluation statistics if available
-    evaluation_stats = {}
-    if evaluator:
-        evaluation_stats = evaluator.get_evaluation_statistics()
-    
-    # Prepare feedback by question type
+
+    average_score = total_score / num_evaluated if num_evaluated else 0
     feedback_by_type = {}
-    for response in interview_responses:
-        q_type = response.get("question_type", "general")
-        if q_type not in feedback_by_type:
-            feedback_by_type[q_type] = {
-                "count": 0,
-                "total_score": 0,
-                "questions": []
-            }
-        
+
+    for r in interview_responses:
+        q_type = r.get("question_type", "general")
+        feedback_by_type.setdefault(q_type, {
+            "count": 0, "total_score": 0, "questions": []
+        })
         try:
-            score = float(response["evaluation"])
-            feedback_by_type[q_type]["count"] += 1
-            feedback_by_type[q_type]["total_score"] += score
-            feedback_by_type[q_type]["questions"].append({
-                "question": response["question"],
-                "score": score
-            })
-        except (ValueError, TypeError):
+            score = float(r["evaluation"])
+            fb = feedback_by_type[q_type]
+            fb["count"] += 1
+            fb["total_score"] += score
+            fb["questions"].append({"question": r["question"], "score": score})
+        except:
             pass
-    
-    # Calculate averages for each question type
-    for q_type in feedback_by_type:
-        if feedback_by_type[q_type]["count"] > 0:
-            feedback_by_type[q_type]["average_score"] = (
-                feedback_by_type[q_type]["total_score"] / 
-                feedback_by_type[q_type]["count"]
-            )
-    
+
+    for q_type, fb in feedback_by_type.items():
+        if fb["count"]:
+            fb["average_score"] = fb["total_score"] / fb["count"]
+
     return {
         "responses": interview_responses,
         "total_questions": len(interview_questions),
         "answered_questions": len(interview_responses),
         "average_score": round(average_score, 1),
-        "evaluation_stats": evaluation_stats,
+        "evaluation_stats": evaluator.get_evaluation_statistics() if evaluator else {},
         "feedback_by_type": feedback_by_type
     }
 
+# 🔍 Helper
 def extract_questions(text):
-    """Extracts questions from formatted text."""
-    # First try to match the standard "Question X: content" format
-    standard_questions = re.findall(r'Question\s+\d+:\s*(.+?)(?=\s*Question\s+\d+:|$)', text, re.DOTALL)
-    
-    # If we found questions in the standard format, clean and return them
-    if standard_questions:
-        # Clean up any trailing whitespace and skip empty questions
-        clean_questions = [q.strip() for q in standard_questions if q.strip()]
-        return clean_questions
-    
-    # As a fallback, try to handle the numbered list format like "1. Question content"
-    numbered_questions = re.findall(r'\d+\.\s*(.+?)(?=\s*\d+\.|$)', text, re.DOTALL)
-    
-    if numbered_questions:
-        # Clean up any trailing whitespace and skip empty questions
-        clean_questions = [q.strip() for q in numbered_questions if q.strip()]
-        return clean_questions
-    
-    # If all else fails, just split by newlines and try to find sensible questions
-    lines = text.split('\n')
-    candidate_questions = []
-    
-    for line in lines:
-        line = line.strip()
-        # Only consider lines that are at least 20 characters and end with a question mark
-        # or are likely to be questions based on starting words
-        if len(line) >= 20 and (
-            line.endswith('?') or 
-            any(line.lower().startswith(q) for q in [
-                'what', 'how', 'why', 'describe', 'tell me', 'can you', 'explain', 
-                'discuss', 'imagine', 'provide'
-            ])
-        ):
-            candidate_questions.append(line)
-    
-    return candidate_questions if candidate_questions else []
+    standard = re.findall(r'Question\s+\d+:\s*(.+?)(?=\s*Question\s+\d+:|$)', text, re.DOTALL)
+    if standard:
+        return [q.strip() for q in standard if q.strip()]
+    numbered = re.findall(r'\d+\.\s*(.+?)(?=\s*\d+\.|$)', text, re.DOTALL)
+    if numbered:
+        return [q.strip() for q in numbered if q.strip()]
+    return [l.strip() for l in text.split('\n') if len(l.strip()) >= 20 and (l.endswith('?') or l.lower().startswith(('what', 'how', 'why', 'describe', 'tell', 'can you', 'explain', 'discuss', 'imagine', 'provide')))]
 
+# 🚀 Render-friendly entrypoint
 if __name__ == "__main__":
+    import os
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
