@@ -16,7 +16,7 @@ app = FastAPI()
 # CORS setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://interviewai-bay.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,34 +45,29 @@ def health_check():
 @app.post("/api/upload-resume")
 async def upload_resume(resume: UploadFile = File(...), role: str = Form(...)):
     try:
+        print("UPLOAD route hit")
+
         contents = await resume.read()
+        print(f"Read file of size: {len(contents)}")
+
         reader = PdfReader(io.BytesIO(contents))
         text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+        print(f"Extracted text length: {len(text)}")
 
         resume_details = await extract_resume_details(ResumeContent(content=text))
-
-        simplified_resume = f"""
-Skills:
-{resume_details.get("skills", "")}
-
-Experience:
-{resume_details.get("experience", "")}
-
-Education:
-{resume_details.get("education", "")}
-"""
+        print("Extracted resume details")
 
         questions_text = interview_candidate(
-            resume=simplified_resume,
+            resume=text,
             role=role,
             skills=resume_details.get("skills", ""),
             experience=resume_details.get("experience", ""),
             education=resume_details.get("education", "")
         )
+        print("Generated questions")
 
         questions = extract_questions(questions_text)
         session_id = str(uuid.uuid4())
-
         user_sessions[session_id] = {
             "questions": questions,
             "index": 0,
@@ -80,6 +75,7 @@ Education:
             "context": {"role": role, "resume_data": text},
             "evaluator": None
         }
+        print("Session saved")
 
         return {
             "success": True,
@@ -88,7 +84,9 @@ Education:
         }
 
     except Exception as e:
+        print(f"UPLOAD ERROR: {str(e)}")  # <- this will show up in Render logs
         raise HTTPException(status_code=500, detail=f"Error processing resume: {str(e)}")
+
 
 @app.get("/api/get-question")
 async def get_question(session_id: str = Query(...)):
