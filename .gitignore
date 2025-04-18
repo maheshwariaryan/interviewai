@@ -1,0 +1,24 @@
+# Environment variables
+.env
+.env.local
+.env.development
+.env.production
+
+# Node
+node_modules/
+build/
+dist/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
