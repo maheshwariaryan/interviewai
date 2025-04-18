@@ -25,6 +25,10 @@ const VoiceInterviewer = ({ onComplete }) => {
   const sessionId = localStorage.getItem('interview_session_id');
 
   useEffect(() => {
+    if (!sessionId) {
+      setError("Interview session not found. Please restart.");
+      return;
+    }
     updateInterviewStatus('interviewing');
     fetchNextQuestion();
   }, []);
