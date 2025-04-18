@@ -1,4 +1,4 @@
-# interview.py
+# questions_generator.py
 import os
 from crewai import Agent, Task, Crew, Process
 from dotenv import load_dotenv
@@ -131,10 +131,20 @@ def interview_candidate(resume, role, skills, experience, education):
     )
 
     # Get interview questions
-    questions = interviewCrew.kickoff()
+    result = interviewCrew.kickoff()
+    
+    # Convert CrewOutput to string - THIS FIXES THE ERROR
+    if hasattr(result, 'raw'):
+        questions_text = result.raw
+    elif hasattr(result, 'output'):
+        questions_text = result.output
+    elif not isinstance(result, str):
+        questions_text = str(result)
+    else:
+        questions_text = result
     
     # Clean up and format the output
-    questions = clean_questions(questions)
+    questions = clean_questions(questions_text)
     
     return questions
 
