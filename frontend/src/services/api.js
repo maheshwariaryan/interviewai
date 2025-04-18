@@ -23,22 +23,18 @@ const handleResponse = async (response) => {
 
 /**
  * Get the current interview question
+ * @param {string} sessionId - The session ID for this interview
  * @returns {Promise} - The current question and remaining count
  */
-export const getCurrentQuestion = async () => {
+export const getCurrentQuestion = async (sessionId) => {
+  if (!sessionId) {
+    throw new Error('Session ID is required');
+  }
+
   try {
-    console.log("API: Getting current question");
-    const response = await fetch(`${API_BASE_URL}/get-question`);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Error response from get-question:", errorText);
-      throw new Error(`Server error: ${response.status} ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    console.log("API: Question data received:", data);
-    return data;
+    console.log("API: Getting current question for session:", sessionId);
+    const response = await fetch(`${API_BASE_URL}/get-question?session_id=${sessionId}`);
+    return handleResponse(response);
   } catch (error) {
     console.error('Get question error:', error);
     throw error;
@@ -48,16 +44,21 @@ export const getCurrentQuestion = async () => {
 /**
  * Submit a response to the current question
  * @param {string} response - The user's response to the question
+ * @param {string} sessionId - The session ID for this interview
  * @returns {Promise} - Evaluation of the response
  */
-export const submitResponse = async (response) => {
+export const submitResponse = async (response, sessionId) => {
   if (!response || response.trim() === '') {
     throw new Error('No response provided');
   }
   
+  if (!sessionId) {
+    throw new Error('Session ID is required');
+  }
+
   try {
-    console.log("API: Submitting response:", response.substring(0, 50) + "...");
-    const apiResponse = await fetch(`${API_BASE_URL}/submit-response`, {
+    console.log("API: Submitting response for session:", sessionId);
+    const apiResponse = await fetch(`${API_BASE_URL}/submit-response?session_id=${sessionId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -65,15 +66,7 @@ export const submitResponse = async (response) => {
       body: JSON.stringify({ response }),
     });
 
-    if (!apiResponse.ok) {
-      const errorText = await apiResponse.text();
-      console.error("Error response from submit-response:", errorText);
-      throw new Error(`Server error: ${apiResponse.status} ${apiResponse.statusText}`);
-    }
-
-    const data = await apiResponse.json();
-    console.log("API: Response submitted, evaluation:", data);
-    return data;
+    return handleResponse(apiResponse);
   } catch (error) {
     console.error('Submit response error:', error);
     throw error;
@@ -82,24 +75,43 @@ export const submitResponse = async (response) => {
 
 /**
  * Get the complete interview results
+ * @param {string} sessionId - The session ID for this interview
  * @returns {Promise} - Complete interview results
  */
-export const getInterviewResults = async () => {
+export const getInterviewResults = async (sessionId) => {
+  if (!sessionId) {
+    throw new Error('Session ID is required');
+  }
+
   try {
-    console.log("API: Getting interview results");
-    const response = await fetch(`${API_BASE_URL}/get-results`);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Error response from get-results:", errorText);
-      throw new Error(`Server error: ${response.status} ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    console.log("API: Results received");
-    return data;
+    console.log("API: Getting interview results for session:", sessionId);
+    const response = await fetch(`${API_BASE_URL}/get-results?session_id=${sessionId}`);
+    return handleResponse(response);
   } catch (error) {
     console.error('Get results error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Generate interview questions based on resume and job role
+ * @param {object} config - Configuration for question generation
+ * @returns {Promise} - Question generation result
+ */
+export const generateQuestions = async (config) => {
+  try {
+    console.log("API: Generating interview questions");
+    const response = await fetch(`${API_BASE_URL}/generate-questions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(config),
+    });
+
+    return handleResponse(response);
+  } catch (error) {
+    console.error('Generate questions error:', error);
     throw error;
   }
 };
