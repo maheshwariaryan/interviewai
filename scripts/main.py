@@ -12,16 +12,17 @@ from resume_parser import extract_details as extract_resume_details
 
 app = FastAPI()
 
-# ✅ CORS: allow frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://interviewai-bay.vercel.app",  # production frontend
+        "https://interviewai-bay.vercel.app",  # ✅ correct (no slash)
+        "http://localhost:3000"  # optional for local dev
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # Global interview state
 interview_questions = []
