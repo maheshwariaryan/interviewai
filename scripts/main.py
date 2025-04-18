@@ -13,7 +13,7 @@ app = FastAPI()
 # Configure CORS to allow requests from your React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Your React app's origin
+    allow_origins=["https://interviewai-bay.vercel.app/"],  # Your React app's origin
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
