@@ -37,6 +37,11 @@ class InterviewConfigModel(BaseModel):
     experience: Optional[str] = None
     education: Optional[str] = None
 
+@app.get("/")
+def health_check():
+    return {"status": "up"}
+
+
 @app.post("/api/upload-resume")
 async def upload_resume(resume: UploadFile = File(...), role: str = Form(...)):
     try:
