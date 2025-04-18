@@ -56,6 +56,7 @@ const ResumeUpload = ({ onComplete }) => {
       }
 
       const result = await response.json();
+      console.log("UPLOAD RESPONSE:", result);
       console.log("SESSION ID FROM BACKEND", result.session_id);
       const sessionId = result.session_id;
       localStorage.setItem('interview_session_id', sessionId); // 🔐 Save session ID

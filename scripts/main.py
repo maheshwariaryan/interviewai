@@ -76,7 +76,11 @@ Education:
             "evaluator": None
         }
 
-        return {"success": True, "session_id": session_id, "question_count": len(questions)}
+        return {
+            "success": True,
+            "session_id": session_id,
+            "question_count": len(questions)
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing resume: {str(e)}")
